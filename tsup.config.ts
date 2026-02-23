@@ -11,38 +11,8 @@ export default defineConfig([
     minify: false,
     bundle: true,
     platform: 'node',
-    banner: {
-      js: '#!/usr/bin/env node',
-    },
-    outDir: 'dist',
-    outExtension: () => ({ js: '.js' }),
-  },
-  // Execution Node entry point (HTTP server)
-  {
-    entry: ['src/entries/execution-entry.ts'],
-    format: ['esm'],
-    target: 'node18',
-    sourcemap: true,
-    splitting: false,
-    minify: false,
-    bundle: true,
-    platform: 'node',
-    banner: {
-      js: '#!/usr/bin/env node',
-    },
-    outDir: 'dist',
-    outExtension: () => ({ js: '.js' }),
-  },
-  // Communication Node entry point (Feishu bot)
-  {
-    entry: ['src/entries/communication-entry.ts'],
-    format: ['esm'],
-    target: 'node18',
-    sourcemap: true,
-    splitting: false,
-    minify: false,
-    bundle: true,
-    platform: 'node',
+    // Exclude native modules that use dynamic require
+    external: ['ws', '@larksuiteoapi/node-sdk'],
     banner: {
       js: '#!/usr/bin/env node',
     },
