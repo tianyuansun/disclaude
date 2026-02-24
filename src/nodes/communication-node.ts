@@ -49,6 +49,12 @@ interface PromptMessage {
   senderOpenId?: string;
 }
 
+interface CommandMessage {
+  type: 'command';
+  command: 'reset' | 'restart';
+  chatId: string;
+}
+
 interface FeedbackMessage {
   type: 'text' | 'card' | 'file' | 'done' | 'error';
   chatId: string;
@@ -214,6 +220,20 @@ export class CommunicationNode extends EventEmitter {
   }
 
   /**
+   * Send command to Execution Node via WebSocket.
+   */
+  private async sendCommand(message: CommandMessage): Promise<void> {
+    if (!this.execWs || this.execWs.readyState !== WebSocket.OPEN) {
+      logger.warn('No Execution Node connected');
+      await this.sendMessage(message.chatId, '❌ 没有可用的执行节点');
+      throw new Error('No Execution Node connected');
+    }
+
+    this.execWs.send(JSON.stringify(message));
+    logger.info({ chatId: message.chatId, command: message.command }, 'Command sent to Execution Node');
+  }
+
+  /**
    * Handle feedback from Execution Node.
    */
   private async handleFeedback(message: FeedbackMessage): Promise<void> {
@@ -267,7 +287,7 @@ export class CommunicationNode extends EventEmitter {
   /**
    * Send a text message to Feishu.
    */
-  async sendMessage(chatId: string, text: string): Promise<void> {
+  async sendMessage(chatId: string, text: string, parentMessageId?: string): Promise<void> {
     if (!this.messageSender) {
       this.getClient();
     }
@@ -275,7 +295,7 @@ export class CommunicationNode extends EventEmitter {
     if (!sender) {
       throw new Error('MessageSender not initialized');
     }
-    await sender.sendText(chatId, text);
+    await sender.sendText(chatId, text, parentMessageId);
   }
 
   /**
@@ -284,7 +304,8 @@ export class CommunicationNode extends EventEmitter {
   async sendCard(
     chatId: string,
     card: Record<string, unknown>,
-    description?: string
+    description?: string,
+    parentMessageId?: string
   ): Promise<void> {
     if (!this.messageSender) {
       this.getClient();
@@ -293,7 +314,7 @@ export class CommunicationNode extends EventEmitter {
     if (!sender) {
       throw new Error('MessageSender not initialized');
     }
-    await sender.sendCard(chatId, card, description);
+    await sender.sendCard(chatId, card, description, parentMessageId);
   }
 
   /**
@@ -473,6 +494,7 @@ export class CommunicationNode extends EventEmitter {
     // Handle /reset command
     if (text.trim() === '/reset') {
       logger.info({ chatId: chat_id }, 'Reset command triggered');
+      await this.sendCommand({ type: 'command', command: 'reset', chatId: chat_id });
       await this.sendMessage(chat_id, '✅ **对话已重置**\n\n新的会话已启动，之前的上下文已清除。');
       return;
     }

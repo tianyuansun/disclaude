@@ -3,13 +3,13 @@
  *
  * The Pilot class manages conversational AI interactions using Claude Agent SDK's
  * streaming input mode. It maintains persistent Agent instances per chatId, allowing
- * for context persistence across multiple user messages.
+ * for context persistence across multiple user messages indefinitely.
  *
  * Key Features:
  * - Streaming Input Mode: Uses SDK's AsyncGenerator-based input for real-time interaction
  * - Per-chatId Agent Instances: Each chatId has its own persistent Agent instance
  * - Message Queue: Messages are queued and processed sequentially per chatId
- * - Automatic cleanup: Idle sessions are cleaned up after a timeout
+ * - Persistent Context: Session context persists until manual reset (/reset) or shutdown
  *
  * Architecture:
  * ```
@@ -45,16 +45,18 @@ export interface PilotCallbacks {
    * Send a text message to the user.
    * @param chatId - Platform-specific chat identifier
    * @param text - Message content
+   * @param parentMessageId - Optional parent message ID for thread replies
    */
-  sendMessage: (chatId: string, text: string) => Promise<void>;
+  sendMessage: (chatId: string, text: string, parentMessageId?: string) => Promise<void>;
 
   /**
    * Send an interactive card to the user.
    * @param chatId - Platform-specific chat identifier
    * @param card - Card JSON structure
    * @param description - Optional description for logging
+   * @param parentMessageId - Optional parent message ID for thread replies
    */
-  sendCard: (chatId: string, card: Record<string, unknown>, description?: string) => Promise<void>;
+  sendCard: (chatId: string, card: Record<string, unknown>, description?: string, parentMessageId?: string) => Promise<void>;
 
   /**
    * Send a file to the user.
@@ -84,11 +86,6 @@ export interface PilotConfig {
    * Callback functions for platform-specific operations.
    */
   callbacks: PilotCallbacks;
-  /**
-   * Maximum idle time before a session is cleaned up (ms).
-   * Default: 30 minutes
-   */
-  sessionIdleTimeout?: number;
   /**
    * Whether running in CLI mode (vs Feishu bot mode).
    * CLI mode doesn't need Feishu MCP servers.
@@ -123,6 +120,8 @@ interface PerChatIdState {
   lastActivity: number;
   /** Whether the Agent loop has been started */
   started: boolean;
+  /** Current thread root message ID for replies (the latest user message) */
+  currentThreadRootId?: string;
 }
 
 /**
@@ -130,7 +129,10 @@ interface PerChatIdState {
  *
  * Manages conversational AI interactions via streaming SDK queries.
  * Each chatId gets its own persistent Agent instance that maintains
- * conversation context across multiple messages.
+ * conversation context across multiple messages indefinitely.
+ *
+ * Session context is NOT automatically reset on inactivity - it persists
+ * until manually reset via /reset command or application shutdown.
  *
  * Extends BaseAgent to inherit common functionality while adding
  * Pilot-specific features like per-chatId state management.
@@ -141,12 +143,6 @@ export class Pilot extends BaseAgent {
 
   // Per-chatId Agent states
   private states = new Map<string, PerChatIdState>();
-
-  // Session idle timeout (default: 30 minutes)
-  private readonly sessionIdleTimeout: number;
-
-  // Cleanup interval timer
-  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(config: PilotConfig) {
     // Get API config from Config if not provided (backward compatibility)
@@ -164,13 +160,6 @@ export class Pilot extends BaseAgent {
 
     this.callbacks = config.callbacks;
     this.isCliMode = config.isCliMode ?? false;
-    this.sessionIdleTimeout = config.sessionIdleTimeout ?? 30 * 60 * 1000; // 30 minutes
-
-    // Start periodic cleanup only for service mode
-    // CLI mode doesn't need cleanup since executeOnce() doesn't use state
-    if (!this.isCliMode) {
-      this.startCleanupTimer();
-    }
   }
 
   protected getAgentName(): string {
@@ -276,15 +265,16 @@ export class Pilot extends BaseAgent {
               this.logger.error({ err, filePath, chatId }, 'Failed to send file');
               await this.callbacks.sendMessage(
                 chatId,
-                `❌ Failed to send file: ${filePath}`
+                `❌ Failed to send file: ${filePath}`,
+                messageId // Use current message as thread root for CLI mode
               );
             }
           }
         }
 
-        // Send message content to callback
+        // Send message content to callback (with thread support)
         if (parsed.content) {
-          await this.callbacks.sendMessage(chatId, parsed.content);
+          await this.callbacks.sendMessage(chatId, parsed.content, messageId);
         }
       }
 
@@ -293,7 +283,7 @@ export class Pilot extends BaseAgent {
       const err = error as Error;
       this.logger.error({ err, chatId }, 'CLI query error');
 
-      await this.callbacks.sendMessage(chatId, `❌ Session error: ${err.message}`);
+      await this.callbacks.sendMessage(chatId, `❌ Session error: ${err.message}`, messageId);
       throw err;
     }
   }
@@ -325,6 +315,11 @@ export class Pilot extends BaseAgent {
 
     // Update last activity
     state.lastActivity = Date.now();
+
+    // Set this message as the current thread root for replies
+    // All bot responses will be threaded to this user message
+    state.currentThreadRootId = messageId;
+    this.logger.debug({ chatId, messageId }, 'Set current thread root for replies');
 
     // Push message to the queue
     state.messageQueue.push({ text, messageId, senderOpenId });
@@ -394,6 +389,7 @@ export class Pilot extends BaseAgent {
       closed: false,
       lastActivity: Date.now(),
       started: false,
+      currentThreadRootId: undefined,
     };
 
     this.states.set(chatId, state);
@@ -461,7 +457,9 @@ To notify the user in your FINAL response, use:
 
 ## Tools
 
-When using send_file_to_feishu or send_user_feedback, use Chat ID: \`${chatId}\`
+When using send_file_to_feishu or send_user_feedback, use:
+- Chat ID: \`${chatId}\`
+- parentMessageId: \`${msg.messageId}\` (for thread replies)
 
 --- User Message ---
 ${msg.text}`;
@@ -472,7 +470,9 @@ ${msg.text}`;
 **Chat ID:** ${chatId}
 **Message ID:** ${msg.messageId}
 
-When using send_file_to_feishu or send_user_feedback, use this Chat ID.
+When using send_file_to_feishu or send_user_feedback, use:
+- Chat ID: \`${chatId}\`
+- parentMessageId: \`${msg.messageId}\` (for thread replies)
 
 --- User Message ---
 ${msg.text}`;
@@ -631,15 +631,16 @@ ${msg.text}`;
               this.logger.error({ err, filePath, chatId }, 'Failed to send file');
               await this.callbacks.sendMessage(
                 chatId,
-                `❌ Failed to send file: ${filePath}`
+                `❌ Failed to send file: ${filePath}`,
+                state.currentThreadRootId
               );
             }
           }
         }
 
-        // Send message content to callback
+        // Send message content to callback (with thread support)
         if (parsed.content) {
-          await this.callbacks.sendMessage(chatId, parsed.content);
+          await this.callbacks.sendMessage(chatId, parsed.content, state.currentThreadRootId);
         }
       }
 
@@ -652,52 +653,11 @@ ${msg.text}`;
       const err = error as Error;
       this.logger.error({ err, chatId }, 'Agent loop error');
 
-      await this.callbacks.sendMessage(chatId, `❌ Session error: ${err.message}`);
+      await this.callbacks.sendMessage(chatId, `❌ Session error: ${err.message}`, state.currentThreadRootId);
 
       // Mark as restartable instead of deleting - preserve queue for next session
       state.started = false;
       state.closed = false; // Allow restart
-    }
-  }
-
-  /**
-   * Start periodic cleanup timer for idle sessions.
-   */
-  private startCleanupTimer(): void {
-    // Run cleanup every 5 minutes
-    this.cleanupTimer = setInterval(() => {
-      this.cleanupIdleStates();
-    }, 5 * 60 * 1000);
-  }
-
-  /**
-   * Cleanup states that have been idle for too long.
-   */
-  private cleanupIdleStates(): void {
-    const now = Date.now();
-    const toCleanup: string[] = [];
-
-    for (const [chatId, state] of this.states) {
-      const idleTime = now - state.lastActivity;
-
-      if (idleTime > this.sessionIdleTimeout) {
-        this.logger.info(
-          { chatId, idleTimeMs: idleTime, timeoutMs: this.sessionIdleTimeout },
-          'State idle timeout'
-        );
-        toCleanup.push(chatId);
-      }
-    }
-
-    // Close idle states
-    for (const chatId of toCleanup) {
-      const state = this.states.get(chatId);
-      if (state) {
-        state.closed = true;
-        if (state.queryInstance) {
-          state.queryInstance.close();
-        }
-      }
     }
   }
 
@@ -789,12 +749,6 @@ ${msg.text}`;
   async shutdown(): Promise<void> {
     await Promise.resolve(); // No-op to satisfy linter
     this.logger.info('Shutting down Pilot');
-
-    // Stop cleanup timer
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = undefined;
-    }
 
     // Close all states
     for (const [, state] of this.states) {
