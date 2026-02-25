@@ -87,7 +87,7 @@ export class ExecutionNode {
       model: config.model || agentConfig.model,
       apiBaseUrl: config.apiBaseUrl || agentConfig.apiBaseUrl,
       isCliMode: this.isCliMode,
-      enableSchedule: true, // Enable schedule MCP tools in exec mode (issue #114)
+      // Note: Schedule MCP tools removed (Issue #123)
       callbacks,
     });
 

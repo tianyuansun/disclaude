@@ -1,7 +1,7 @@
 ---
 name: schedule
 description: 定时任务创建专家 - 交互式创建和管理定时任务
-allowed-tools: [Read, Write, Edit, Bash, Glob, Grep, create_schedule, list_schedules, delete_schedule, toggle_schedule]
+allowed-tools: [Read, Write, Edit, Bash, Glob, Grep]
 ---
 
 # Schedule Agent
@@ -34,25 +34,38 @@ When invoked, you will receive context in the system message:
    - 执行时间（cron 格式或自然语言）
    - 任务内容（要执行的 prompt）
 
-2. 使用 `create_schedule` 工具创建任务：
-   - name: 任务名称
-   - cron: cron 表达式
-   - prompt: 任务内容
-   - chatId: 从上下文获取
+2. 使用 `Write` 工具创建任务文件：
+   - 文件路径: `workspace/schedules/<timestamp>-<name>.md`
+   - 文件内容格式如下：
+   ```markdown
+   ---
+   name: 任务名称
+   cron: "0 9 * * *"
+   enabled: true
+   chatId: 从上下文获取的 chatId
+   ---
+
+   任务内容（prompt）
+   ```
 
 3. 确认创建成功，展示任务详情
 
 ### 查看任务
 
-使用 `list_schedules` 工具列出当前聊天的所有任务。
+使用 `Glob` 工具列出 `workspace/schedules/*.md` 文件，然后用 `Read` 工具读取文件内容，过滤当前 chatId 的任务。
 
 ### 删除任务
 
-使用 `delete_schedule` 工具删除指定任务。
+使用 `Bash` 工具执行 `rm` 命令删除指定任务文件：
+```bash
+rm workspace/schedules/<task-id>.md
+```
 
 ### 启用/禁用任务
 
-使用 `toggle_schedule` 工具切换任务状态。
+使用 `Edit` 工具修改任务文件中的 `enabled` 字段：
+- 启用: `enabled: true`
+- 禁用: `enabled: false`
 
 ## Cron 格式说明
 
@@ -91,13 +104,13 @@ Agent:
 1. 确认任务名称："每日提醒"
 2. 确认时间：每天 9:00 → `"0 9 * * *"`
 3. 询问任务内容："提醒我做什么？"
-4. 收集完整信息后调用 create_schedule
+4. 收集完整信息后，使用 Write 工具创建任务文件
 
 ### 查看任务
 
 用户: "我有哪些定时任务？"
 
-Agent: 调用 list_schedules 并格式化展示结果
+Agent: 使用 Glob 列出任务文件，然后用 Read 读取并格式化展示结果
 
 ## 重要行为
 

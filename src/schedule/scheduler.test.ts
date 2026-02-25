@@ -14,8 +14,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { Scheduler } from './scheduler.js';
 import { ScheduleManager } from './schedule-manager.js';
-import type { ScheduledTask, PilotCallbacks } from './index.js';
-import type { Pilot } from '../agents/pilot.js';
+import type { ScheduledTask } from './index.js';
+import type { Pilot, PilotCallbacks } from '../agents/pilot.js';
 
 // Mock Pilot
 const createMockPilot = (): Pilot => {
