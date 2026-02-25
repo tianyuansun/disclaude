@@ -74,6 +74,9 @@ export class CommunicationNode extends EventEmitter {
   // Channel routing: chatId -> channelId
   private chatToChannel: Map<string, string> = new Map();
 
+  // Default channel ID for scheduled tasks and other async operations (Issue #109)
+  private defaultChannelId: string = 'feishu';
+
   constructor(config: CommunicationNodeConfig) {
     super();
     this.port = config.port;
@@ -156,6 +159,31 @@ export class CommunicationNode extends EventEmitter {
    */
   getChannels(): IChannel[] {
     return Array.from(this.channels.values());
+  }
+
+  /**
+   * Get channel for a chatId, falling back to default channel if not found.
+   * This enables scheduled tasks to send messages without an active session.
+   * (Issue #109)
+   */
+  private getChannelForChat(chatId: string): { channel: IChannel; channelId: string } | null {
+    // First, try to find the mapped channel
+    const channelId = this.chatToChannel.get(chatId);
+    if (channelId) {
+      const channel = this.channels.get(channelId);
+      if (channel) {
+        return { channel, channelId };
+      }
+    }
+
+    // Fallback to default channel (for scheduled tasks, etc.)
+    const defaultChannel = this.channels.get(this.defaultChannelId);
+    if (defaultChannel) {
+      logger.debug({ chatId, defaultChannelId: this.defaultChannelId }, 'Using default channel for chat');
+      return { channel: defaultChannel, channelId: this.defaultChannelId };
+    }
+
+    return null;
   }
 
   /**
@@ -342,20 +370,16 @@ export class CommunicationNode extends EventEmitter {
 
   /**
    * Send a text message to the appropriate channel.
+   * Falls back to default channel if no mapping found (for scheduled tasks).
    */
   async sendMessage(chatId: string, text: string, parentMessageId?: string): Promise<void> {
-    const channelId = this.chatToChannel.get(chatId);
-    if (!channelId) {
-      logger.warn({ chatId }, 'No channel found for chat');
+    const result = this.getChannelForChat(chatId);
+    if (!result) {
+      logger.warn({ chatId }, 'No channel found for chat (including default)');
       return;
     }
 
-    const channel = this.channels.get(channelId);
-    if (!channel) {
-      logger.warn({ chatId, channelId }, 'Channel not found');
-      return;
-    }
-
+    const { channel } = result;
     await channel.sendMessage({
       chatId,
       type: 'text',
@@ -366,6 +390,7 @@ export class CommunicationNode extends EventEmitter {
 
   /**
    * Send an interactive card to the appropriate channel.
+   * Falls back to default channel if no mapping found (for scheduled tasks).
    */
   async sendCard(
     chatId: string,
@@ -373,18 +398,13 @@ export class CommunicationNode extends EventEmitter {
     description?: string,
     parentMessageId?: string
   ): Promise<void> {
-    const channelId = this.chatToChannel.get(chatId);
-    if (!channelId) {
-      logger.warn({ chatId }, 'No channel found for chat');
+    const result = this.getChannelForChat(chatId);
+    if (!result) {
+      logger.warn({ chatId }, 'No channel found for chat (including default)');
       return;
     }
 
-    const channel = this.channels.get(channelId);
-    if (!channel) {
-      logger.warn({ chatId, channelId }, 'Channel not found');
-      return;
-    }
-
+    const { channel } = result;
     await channel.sendMessage({
       chatId,
       type: 'card',
@@ -396,20 +416,16 @@ export class CommunicationNode extends EventEmitter {
 
   /**
    * Send a file to the appropriate channel.
+   * Falls back to default channel if no mapping found (for scheduled tasks).
    */
   async sendFileToUser(chatId: string, filePath: string, _parentId?: string): Promise<void> {
-    const channelId = this.chatToChannel.get(chatId);
-    if (!channelId) {
-      logger.warn({ chatId }, 'No channel found for chat');
+    const result = this.getChannelForChat(chatId);
+    if (!result) {
+      logger.warn({ chatId }, 'No channel found for chat (including default)');
       return;
     }
 
-    const channel = this.channels.get(channelId);
-    if (!channel) {
-      logger.warn({ chatId, channelId }, 'Channel not found');
-      return;
-    }
-
+    const { channel } = result;
     // TODO: Pass parentId when Issue #68 is implemented
     await channel.sendMessage({
       chatId,
