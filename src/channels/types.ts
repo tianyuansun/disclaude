@@ -38,8 +38,11 @@ export interface IncomingMessage {
   /** Timestamp when message was created (ms since epoch) */
   timestamp?: number;
 
-  /** Parent message ID for thread replies */
+  /** Parent message ID for thread replies (immediate parent) */
   parentId?: string;
+
+  /** Thread root ID for thread replies (first message in thread) */
+  threadId?: string;
 
   /** Additional metadata from the channel */
   metadata?: Record<string, unknown>;

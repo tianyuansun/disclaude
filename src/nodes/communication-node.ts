@@ -229,6 +229,7 @@ export class CommunicationNode extends EventEmitter {
     this.chatToChannel.set(message.chatId, channelId);
 
     // Send prompt to Execution Node
+    // Use threadId (root_id) for thread replies if available
     await this.sendPrompt({
       type: 'prompt',
       chatId: message.chatId,
@@ -236,6 +237,7 @@ export class CommunicationNode extends EventEmitter {
       messageId: message.messageId,
       senderOpenId: message.userId,
       parentId: message.parentId,
+      threadId: message.threadId,
     });
   }
 
@@ -279,7 +281,7 @@ export class CommunicationNode extends EventEmitter {
     }
 
     this.execWs.send(JSON.stringify(message));
-    logger.info({ chatId: message.chatId, messageId: message.messageId, parentId: message.parentId }, 'Prompt sent to Execution Node');
+    logger.info({ chatId: message.chatId, messageId: message.messageId, parentId: message.parentId, threadId: message.threadId }, 'Prompt sent to Execution Node');
   }
 
   /**
@@ -300,21 +302,25 @@ export class CommunicationNode extends EventEmitter {
    * Handle feedback from Execution Node.
    */
   private async handleFeedback(message: FeedbackMessage): Promise<void> {
-    const { chatId, type, text, card, filePath, error, parentId } = message;
+    const { chatId, type, text, card, filePath, error, parentId, threadId } = message;
+
+    // For thread replies: prefer threadId (root_id) over parentId
+    // This ensures bot replies join the thread instead of becoming standalone messages
+    const replyToId = threadId || parentId;
 
     try {
       switch (type) {
         case 'text':
           if (text) {
-            await this.sendMessage(chatId, text, parentId);
+            await this.sendMessage(chatId, text, replyToId);
           }
           break;
         case 'card':
-          await this.sendCard(chatId, card || {}, undefined, parentId);
+          await this.sendCard(chatId, card || {}, undefined, replyToId);
           break;
         case 'file':
           if (filePath) {
-            await this.sendFileToUser(chatId, filePath, parentId);
+            await this.sendFileToUser(chatId, filePath, replyToId);
           }
           break;
         case 'done':
@@ -325,14 +331,14 @@ export class CommunicationNode extends EventEmitter {
             if (channelId) {
               const channel = this.channels.get(channelId);
               if (channel) {
-                await channel.sendMessage({ type: 'done', chatId, parentId });
+                await channel.sendMessage({ type: 'done', chatId, parentId: replyToId });
               }
             }
           }
           break;
         case 'error':
           logger.error({ chatId, error }, 'Execution error');
-          await this.sendMessage(chatId, `❌ 执行错误: ${error || 'Unknown error'}`, parentId);
+          await this.sendMessage(chatId, `❌ 执行错误: ${error || 'Unknown error'}`, replyToId);
           break;
       }
     } catch (err) {

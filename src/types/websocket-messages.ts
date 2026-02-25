@@ -15,8 +15,10 @@ export interface PromptMessage {
   prompt: string;
   messageId: string;
   senderOpenId?: string;
-  /** Parent message ID for thread replies */
+  /** Parent message ID for thread replies (immediate parent) */
   parentId?: string;
+  /** Thread root ID for thread replies (first message in thread) */
+  threadId?: string;
 }
 
 /**
@@ -38,6 +40,8 @@ export interface FeedbackMessage {
   card?: Record<string, unknown>;
   filePath?: string;
   error?: string;
-  /** Parent message ID for thread replies */
+  /** Parent message ID for thread replies (immediate parent) */
   parentId?: string;
+  /** Thread root ID for thread replies (first message in thread) */
+  threadId?: string;
 }
