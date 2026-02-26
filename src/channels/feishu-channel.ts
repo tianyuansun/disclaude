@@ -44,6 +44,7 @@ export interface FeishuChannelConfig extends ChannelConfig {
  * - File/image handling
  * - Interactive card support
  * - Typing reactions
+ * - Bot-to-bot collaboration (optional)
  */
 export class FeishuChannel extends BaseChannel<FeishuChannelConfig> {
   private appId: string;
@@ -58,11 +59,27 @@ export class FeishuChannel extends BaseChannel<FeishuChannelConfig> {
 
   private readonly MAX_MESSAGE_AGE = DEDUPLICATION.MAX_MESSAGE_AGE;
 
+  // Bot collaboration settings
+  private readonly botCollaborationEnabled: boolean;
+  private readonly allowedBotIds: Set<string>;
+  private readonly maxConversationDepth: number;
+
+  // Track conversation depth per chat to prevent infinite loops
+  // Key: chatId, Value: current depth
+  private conversationDepth: Map<string, number> = new Map();
+
   constructor(config: FeishuChannelConfig = {}) {
     super(config, 'feishu', 'Feishu');
     this.appId = config.appId || Config.FEISHU_APP_ID;
     this.appSecret = config.appSecret || Config.FEISHU_APP_SECRET;
     this.taskTracker = new TaskTracker();
+
+    // Initialize bot collaboration settings from config
+    const rawConfig = Config.getRawConfig();
+    const botCollab = rawConfig.feishu?.botCollaboration;
+    this.botCollaborationEnabled = botCollab?.enabled ?? false;
+    this.allowedBotIds = new Set(botCollab?.allowedBotIds ?? []);
+    this.maxConversationDepth = botCollab?.maxDepth ?? 5;
 
     // Initialize FileHandler
     this.fileHandler = new FileHandler(
@@ -82,7 +99,14 @@ export class FeishuChannel extends BaseChannel<FeishuChannelConfig> {
       }
     );
 
-    logger.info({ id: this.id }, 'FeishuChannel created');
+    logger.info(
+      {
+        id: this.id,
+        botCollaboration: this.botCollaborationEnabled,
+        allowedBots: this.allowedBotIds.size,
+      },
+      'FeishuChannel created'
+    );
   }
 
   protected async doStart(): Promise<void> {
@@ -273,10 +297,40 @@ export class FeishuChannel extends BaseChannel<FeishuChannelConfig> {
       return;
     }
 
-    // Ignore bot messages
+    // Handle bot messages - support bot-to-bot collaboration
     if (sender?.sender_type === 'app') {
-      logger.debug('Skipped bot message');
-      return;
+      const botId = this.extractOpenId(sender);
+
+      // Check if bot collaboration is enabled and this bot is allowed
+      if (!this.botCollaborationEnabled) {
+        logger.debug('Skipped bot message (collaboration disabled)');
+        return;
+      }
+
+      if (!botId || !this.allowedBotIds.has(botId)) {
+        logger.debug({ botId }, 'Skipped bot message (bot not in allowed list)');
+        return;
+      }
+
+      // Check conversation depth to prevent infinite loops
+      const currentDepth = this.conversationDepth.get(chat_id) ?? 0;
+      if (currentDepth >= this.maxConversationDepth) {
+        logger.warn(
+          { chatId: chat_id, depth: currentDepth },
+          'Max conversation depth reached, skipping bot message'
+        );
+        return;
+      }
+
+      // Increment conversation depth
+      this.conversationDepth.set(chat_id, currentDepth + 1);
+      logger.info(
+        { botId, chatId: chat_id, depth: currentDepth + 1 },
+        'Processing message from allowed bot'
+      );
+    } else {
+      // Reset conversation depth when human user sends a message
+      this.conversationDepth.delete(chat_id);
     }
 
     // Check message age

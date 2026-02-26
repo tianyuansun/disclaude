@@ -62,6 +62,20 @@ feishu:
     # Default: 60000 (1 minute)
     maxAgeMs: 60000
 
+  # Bot collaboration settings (optional)
+  # Enable multiple bots to work together in the same chat
+  # botCollaboration:
+  #   # Enable bot-to-bot communication
+  #   enabled: true
+  #   # List of allowed bot IDs (open_id format: cli_xxx)
+  #   # Only messages from these bots will be processed
+  #   allowedBotIds:
+  #     - "cli_example_bot_id_1"
+  #     - "cli_example_bot_id_2"
+  #   # Maximum conversation depth to prevent infinite loops
+  #   # Default: 5
+  #   maxDepth: 5
+
 # -----------------------------------------------------------------------------
 # GLM (Zhipu AI) API Configuration
 # -----------------------------------------------------------------------------

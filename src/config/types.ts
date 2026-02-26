@@ -63,6 +63,15 @@ export interface FeishuConfig {
     /** Maximum message age in milliseconds */
     maxAgeMs?: number;
   };
+  /** Bot collaboration settings */
+  botCollaboration?: {
+    /** Enable bot-to-bot communication */
+    enabled?: boolean;
+    /** List of allowed bot IDs (open_id format: cli_xxx) */
+    allowedBotIds?: string[];
+    /** Maximum conversation depth to prevent infinite loops */
+    maxDepth?: number;
+  };
 }
 
 /**
