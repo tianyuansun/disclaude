@@ -90,46 +90,11 @@ Schedule content prompt here
 
 ---
 
-### 2. Delete Schedule
+### 2. List Schedules
 
 **Steps:**
-1. Find schedule files with `Glob`: `workspace/schedules/*.md`
-2. Read files with `Read`
-3. Filter by current `chatId`
-4. Confirm schedule to delete
-5. Verify schedule belongs to current `chatId`
-6. Delete with `Bash rm`
-7. **SEND FEEDBACK** confirming deletion
-
-**Error Handling:**
-- Schedule not found → send feedback with available schedules
-- chatId mismatch → reject and explain
-
----
-
-### 3. Update Schedule
-
-**Modifiable Properties:**
-- `cron`: Execution time
-- `name`: Schedule name
-- `enabled`: Enable/disable
-- `blocking`: Blocking mode
-- Content (body text)
-
-**Steps:**
-1. Find schedule file
-2. Verify `chatId` ownership
-3. Confirm changes
-4. Modify with `Edit` tool
-5. **SEND FEEDBACK** showing before/after
-
----
-
-### 4. List Schedules
-
-**Steps:**
-1. Find all schedule files
-2. Read each file
+1. Find all schedule files with `Glob`: `workspace/schedules/*.md`
+2. Read each file with `Read`
 3. Filter by current `chatId`
 4. Format and display
 5. **SEND FEEDBACK** (even if no schedules found)
@@ -152,6 +117,57 @@ Would you like to create one?
 
 ---
 
+### 3. Update Schedule
+
+**Modifiable Properties:**
+- `cron`: Execution time
+- `name`: Schedule name
+- `enabled`: Enable/disable
+- `blocking`: Blocking mode
+- Content (body text)
+
+**Steps:**
+1. Find schedule file with `Glob`: `workspace/schedules/*.md`
+2. Read and verify `chatId` ownership with `Read`
+3. Confirm changes with user
+4. Modify with `Edit` tool
+5. **SEND FEEDBACK** showing before/after
+
+---
+
+### 4. Disable Schedule (Soft Delete)
+
+**IMPORTANT**: Do NOT delete schedule files. Instead, disable them by setting `enabled: false`.
+
+This preserves the configuration for potential future re-enablement and maintains audit history.
+
+**Steps:**
+1. Find schedule files with `Glob`: `workspace/schedules/*.md`
+2. Read files with `Read`
+3. Filter by current `chatId`
+4. Confirm schedule to disable with user
+5. Verify schedule belongs to current `chatId`
+6. Update `enabled` field to `false` with `Edit` tool
+7. **SEND FEEDBACK** confirming disablement
+
+**Example Edit:**
+```yaml
+# Before
+enabled: true
+
+# After
+enabled: false
+```
+
+**Error Handling:**
+- Schedule not found → send feedback with available schedules
+- chatId mismatch → reject and explain
+- Already disabled → inform user and offer re-enablement
+
+**Re-enable**: Use Update operation to set `enabled: true`
+
+---
+
 ## Cron Format
 
 ```
@@ -168,19 +184,78 @@ minute hour day month weekday
 
 ---
 
+## Schedule Prompt Guidelines
+
+When creating or updating schedules, follow these guidelines to ensure efficient execution:
+
+### 1. Be Specific and Actionable
+- State exactly what task should be performed
+- Avoid vague instructions like "check something"
+- Include all necessary context in the prompt
+
+**Good Example:**
+```
+Execute the automated issue PR workflow:
+1. Clone hs3180/disclaude repository
+2. Find highest priority open issue without PR
+3. Implement the fix
+4. Submit a PR with proper description
+```
+
+**Bad Example:**
+```
+Check for issues and fix them
+```
+
+### 2. Include Scope Limitations
+- Specify file paths, repositories, or services to work with
+- Define what NOT to do if relevant
+- Set clear boundaries for the task
+
+### 3. Add Execution Constraints
+- Use `blocking: true` for tasks that shouldn't overlap
+- Consider execution time when setting cron schedules
+- Account for potential failures
+
+### 4. Provide Error Handling Guidance
+- What to do if the task fails
+- Whether to retry or skip
+- How to report issues
+
+### 5. Keep Prompts Self-Contained
+- All necessary information should be in the prompt
+- Don't rely on external context that may change
+- Include any required credentials reference (not actual credentials)
+
+### 6. Consider Idempotency
+- Design prompts that can be safely re-run
+- Avoid creating duplicate resources
+- Check for existing state before acting
+
+### 7. Set Appropriate Timing
+- Allow enough time for task completion before next run
+- Avoid scheduling during peak usage if resource-intensive
+- Consider timezone implications
+
+---
+
 ## Checklist
 
 After each operation, verify:
 - [ ] Used correct `chatId`?
 - [ ] Verified schedule ownership?
 - [ ] **Sent feedback to user?** (CRITICAL)
+- [ ] For new schedules: Prompt follows guidelines?
+- [ ] For disable: Used `enabled: false` instead of deleting?
 
 ---
 
 ## DO NOT
 
 - Create schedules without confirmation
-- Modify/delete schedules from other chats
+- Modify/disable schedules from other chats
 - Complete operation without sending feedback
 - Assume directory exists (check first)
 - Execute unrelated operations
+- **Delete schedule files** (disable with `enabled: false` instead)
+- Create schedules with vague prompts
