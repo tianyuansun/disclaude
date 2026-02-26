@@ -17,6 +17,7 @@ export * from './constants.js';
 export * from './tool-configuration.js';
 export * from './types.js';
 export * from './loader.js';
+export * from './runtime-tool-config.js';
 
 const logger = createLogger('Config');
 

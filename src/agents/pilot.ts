@@ -165,6 +165,7 @@ export class Pilot extends BaseAgent {
     const sdkOptions = this.createSdkOptions({
       disallowedTools: ['AskUserQuestion'],
       mcpServers,
+      chatId,
     });
 
     // Build enhanced content with context
@@ -280,6 +281,7 @@ export class Pilot extends BaseAgent {
     const sdkOptions = this.createSdkOptions({
       disallowedTools: ['AskUserQuestion'],
       mcpServers,
+      chatId,
     });
 
     this.logger.info({ chatId, mcpServers: Object.keys(sdkOptions.mcpServers || {}) }, 'Starting SDK query with message channel');

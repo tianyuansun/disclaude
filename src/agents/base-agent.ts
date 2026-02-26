@@ -14,6 +14,7 @@
 import { query, type SDKMessage, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { parseSDKMessage, buildSdkEnv } from '../utils/sdk.js';
 import { Config } from '../config/index.js';
+import { getRuntimeToolConfig } from '../config/runtime-tool-config.js';
 import { createLogger } from '../utils/logger.js';
 import { AppError, ErrorCategory, formatError } from '../utils/error-handler.js';
 import type { AgentMessage, AgentInput } from '../types/agent.js';
@@ -44,6 +45,8 @@ export interface SdkOptionsExtra {
   mcpServers?: Record<string, unknown>;
   /** Custom working directory */
   cwd?: string;
+  /** Chat ID for runtime tool configuration lookup */
+  chatId?: string;
 }
 
 /**
@@ -126,6 +129,8 @@ export abstract class BaseAgent {
    * with common configuration (cwd, permissionMode, env, model)
    * while allowing subclasses to add specific options.
    *
+   * Also merges runtime tool configuration (blacklist/whitelist).
+   *
    * @param extra - Extra configuration to merge
    * @returns SDK options object
    */
@@ -136,12 +141,35 @@ export abstract class BaseAgent {
       settingSources: ['project'],
     };
 
-    // Add allowed/disallowed tools
-    if (extra.allowedTools) {
-      sdkOptions.allowedTools = extra.allowedTools;
+    // Merge runtime tool configuration
+    const runtimeConfig = getRuntimeToolConfig();
+    const runtimeDisabled = runtimeConfig.getDisabledTools(extra.chatId);
+    const runtimeEnabled = runtimeConfig.getEnabledTools(extra.chatId);
+
+    // Combine explicit and runtime disallowed tools
+    const allDisallowed = [...(extra.disallowedTools || [])];
+    for (const tool of runtimeDisabled) {
+      if (!allDisallowed.includes(tool)) {
+        allDisallowed.push(tool);
+      }
     }
-    if (extra.disallowedTools) {
-      sdkOptions.disallowedTools = extra.disallowedTools;
+
+    // Combine explicit and runtime allowed tools
+    const allAllowed = extra.allowedTools ? [...extra.allowedTools] : [];
+    if (runtimeEnabled.length > 0) {
+      for (const tool of runtimeEnabled) {
+        if (!allAllowed.includes(tool)) {
+          allAllowed.push(tool);
+        }
+      }
+    }
+
+    // Add allowed/disallowed tools
+    if (allAllowed.length > 0) {
+      sdkOptions.allowedTools = allAllowed;
+    }
+    if (allDisallowed.length > 0) {
+      sdkOptions.disallowedTools = allDisallowed;
     }
 
     // Add MCP servers
