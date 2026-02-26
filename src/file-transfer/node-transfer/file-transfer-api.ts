@@ -6,13 +6,13 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'http';
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from '../../utils/logger.js';
 import type { FileStorageService } from './file-storage-service.js';
 import type {
   FileUploadRequest,
   FileUploadResponse,
   FileDownloadResponse,
-} from '../types/file-reference.js';
+} from '../types.js';
 
 const logger = createLogger('FileTransferAPI');
 

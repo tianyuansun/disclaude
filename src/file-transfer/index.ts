@@ -26,3 +26,32 @@ export {
   createInboundAttachment,
   createOutboundFile,
 } from './types.js';
+
+// Inbound components (user -> system)
+export {
+  downloadFile,
+  extractFileExtension,
+  AttachmentManager,
+  attachmentManager,
+} from './inbound/index.js';
+
+// Outbound components (system -> user)
+export {
+  uploadFile,
+  sendFileMessage,
+  uploadAndSendFile,
+  detectFileType,
+  type FileType,
+  type UploadResult,
+} from './outbound/index.js';
+
+// Node-to-node transfer components (distributed mode)
+export {
+  FileClient,
+  type FileClientConfig,
+  FileStorageService,
+  type FileStorageConfig,
+  createFileTransferAPIHandler,
+  type FileTransferAPIConfig,
+  type FileTransferAPIHandler,
+} from './node-transfer/index.js';

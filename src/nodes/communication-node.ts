@@ -23,9 +23,9 @@ import type { IChannel, IncomingMessage, OutgoingMessage, ControlCommand, Contro
 import { FeishuChannel } from '../channels/feishu-channel.js';
 import { RestChannel } from '../channels/rest-channel.js';
 import type { PromptMessage, CommandMessage, FeedbackMessage, RegisterMessage, ExecNodeInfo } from '../types/websocket-messages.js';
-import type { FileReference } from '../types/file-reference.js';
-import { FileStorageService, type FileStorageConfig } from '../services/file-storage-service.js';
-import { createFileTransferAPIHandler } from '../services/file-transfer-api.js';
+import type { FileReference } from '../file-transfer/types.js';
+import { FileStorageService, type FileStorageConfig } from '../file-transfer/node-transfer/index.js';
+import { createFileTransferAPIHandler } from '../file-transfer/node-transfer/index.js';
 
 const logger = createLogger('CommunicationNode');
 

@@ -39,7 +39,7 @@ import type { SDKUserMessage, Query } from '@anthropic-ai/claude-agent-sdk';
 import { Config } from '../config/index.js';
 import { createFeishuSdkMcpServer } from '../mcp/feishu-context-mcp.js';
 import { BaseAgent, type BaseAgentConfig } from './base-agent.js';
-import type { FileReference } from '../types/file-reference.js';
+import type { FileReference } from '../file-transfer/types.js';
 import { MessageChannel } from './message-channel.js';
 import { SessionManager } from './session-manager.js';
 import { ConversationContext } from './conversation-context.js';

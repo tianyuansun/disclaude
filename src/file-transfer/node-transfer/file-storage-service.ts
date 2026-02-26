@@ -6,8 +6,8 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { createLogger } from '../utils/logger.js';
-import { createFileReference, type FileReference, type StoredFile } from '../types/file-reference.js';
+import { createLogger } from '../../utils/logger.js';
+import { createFileRef, type FileRef, type StoredFile } from '../types.js';
 
 const logger = createLogger('FileStorageService');
 
@@ -59,14 +59,14 @@ export class FileStorageService {
     mimeType?: string,
     source: 'user' | 'agent' = 'user',
     chatId?: string
-  ): Promise<FileReference> {
+  ): Promise<FileRef> {
     const stats = await fs.stat(localPath);
 
     if (stats.size > this.maxFileSize) {
       throw new Error(`File size exceeds maximum allowed size: ${stats.size} > ${this.maxFileSize}`);
     }
 
-    const fileRef = createFileReference(fileName, source, {
+    const fileRef = createFileRef(fileName, source, {
       mimeType,
       size: stats.size,
       chatId,
@@ -78,7 +78,7 @@ export class FileStorageService {
     const storedPath = path.join(fileDir, fileName);
     await fs.copyFile(localPath, storedPath);
 
-    fileRef.storageKey = storedPath;
+    fileRef.localPath = storedPath;
     this.files.set(fileRef.id, { ref: fileRef, localPath: storedPath });
 
     logger.info({
@@ -100,14 +100,14 @@ export class FileStorageService {
     mimeType?: string,
     source: 'user' | 'agent' = 'agent',
     chatId?: string
-  ): Promise<FileReference> {
+  ): Promise<FileRef> {
     const buffer = Buffer.from(content, 'base64');
 
     if (buffer.length > this.maxFileSize) {
       throw new Error(`File size exceeds maximum allowed size: ${buffer.length} > ${this.maxFileSize}`);
     }
 
-    const fileRef = createFileReference(fileName, source, {
+    const fileRef = createFileRef(fileName, source, {
       mimeType,
       size: buffer.length,
       chatId,
@@ -119,7 +119,7 @@ export class FileStorageService {
     const storedPath = path.join(fileDir, fileName);
     await fs.writeFile(storedPath, buffer);
 
-    fileRef.storageKey = storedPath;
+    fileRef.localPath = storedPath;
     this.files.set(fileRef.id, { ref: fileRef, localPath: storedPath });
 
     logger.info({

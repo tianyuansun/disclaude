@@ -18,4 +18,6 @@
  * ```
  */
 
-export * from './file-client.js';
+// Re-export from new location for backward compatibility
+// @deprecated - Import from '../file-transfer/node-transfer/index.js' instead
+export * from '../file-transfer/node-transfer/index.js';
