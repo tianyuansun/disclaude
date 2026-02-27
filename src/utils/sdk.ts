@@ -398,7 +398,11 @@ export function buildSdkEnv(
   sdkDebug: boolean = true
 ): Record<string, string | undefined> {
   const nodeBinDir = getNodeBinDir();
-  const newPath = `${nodeBinDir}:${process.env.PATH || ''}`;
+  const originalPath = process.env.PATH || '';
+  // Avoid duplicating nodeBinDir if it's already in PATH
+  const newPath = originalPath.includes(nodeBinDir)
+    ? originalPath
+    : `${nodeBinDir}:${originalPath}`;
 
   // Priority (highest to lowest):
   // 1. Our forced values (API_KEY, PATH, BASE_URL, DEBUG)

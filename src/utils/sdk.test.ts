@@ -343,6 +343,32 @@ describe('buildSdkEnv', () => {
       process.env.DEBUG_CLAUDE_AGENT_SDK = originalValue;
     }
   });
+
+  it('should not duplicate nodeBinDir in PATH if already present', () => {
+    const nodeBinDir = getNodeBinDir();
+    const originalPath = process.env.PATH;
+
+    // Set PATH to already include nodeBinDir at the start
+    // Use a unique path to avoid confusion with /usr/bin which is both nodeBinDir and common path
+    process.env.PATH = `${nodeBinDir}:/some/other/path:/bin`;
+
+    const result = buildSdkEnv('test-key');
+
+    // PATH should start with nodeBinDir and not contain it twice at the start
+    expect(result.PATH).toBeDefined();
+    expect(result.PATH).toContain(nodeBinDir);
+
+    // Count occurrences of nodeBinDir - should be exactly 1
+    const nodeBinDirCount = (result.PATH?.match(new RegExp(nodeBinDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+    expect(nodeBinDirCount).toBe(1);
+
+    // Restore original PATH
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = originalPath;
+    }
+  });
 });
 
 describe('extractText', () => {

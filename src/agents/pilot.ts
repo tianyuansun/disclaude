@@ -43,6 +43,7 @@ import type { FileRef } from '../file-transfer/types.js';
 import { MessageChannel } from './message-channel.js';
 import { SessionManager } from './session-manager.js';
 import { ConversationOrchestrator } from '../conversation/index.js';
+import { RestartManager } from '../utils/restart-manager.js';
 
 /**
  * Callback functions for platform-specific operations.
@@ -123,6 +124,7 @@ export class Pilot extends BaseAgent {
   // Separated concerns
   private readonly sessionManager: SessionManager;
   private readonly conversationOrchestrator: ConversationOrchestrator;
+  private readonly restartManager: RestartManager;
 
   constructor(config: PilotConfig) {
     super(config);
@@ -132,6 +134,27 @@ export class Pilot extends BaseAgent {
     // Initialize separated managers
     this.sessionManager = new SessionManager({ logger: this.logger });
     this.conversationOrchestrator = new ConversationOrchestrator({ logger: this.logger });
+
+    // Initialize restart manager with backoff and circuit breaker
+    this.restartManager = new RestartManager({
+      maxRestarts: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 30000,
+      backoffMultiplier: 2,
+      cooldownMs: 60000, // Reset failure count after 1 minute of stability
+      onCircuitOpen: (chatId, failureCount) => {
+        this.logger.error(
+          { chatId, failureCount },
+          'Circuit breaker opened - too many restart failures. Manual intervention required.'
+        );
+      },
+      onRestart: (chatId, attempt, delay) => {
+        this.logger.info(
+          { chatId, attempt, delay },
+          'Scheduling restart with backoff'
+        );
+      },
+    });
   }
 
   protected getAgentName(): string {
@@ -325,13 +348,15 @@ export class Pilot extends BaseAgent {
    * removes the Query and Channel from the maps.
    *
    * If the iterator ends without explicit close, we attempt to restart the agent loop
-   * and notify the user, preserving the conversation context.
+   * with exponential backoff via RestartManager. A circuit breaker prevents infinite
+   * restart loops after too many consecutive failures.
    */
   private async processIterator(
     chatId: string,
     iterator: AsyncGenerator<{ parsed: { type: string; content?: string } }>
   ): Promise<void> {
     let iteratorError: Error | null = null;
+    let hadSuccessfulResult = false;
 
     try {
       for await (const { parsed } of iterator) {
@@ -343,7 +368,10 @@ export class Pilot extends BaseAgent {
 
         // Check for completion
         if (parsed.type === 'result') {
+          hadSuccessfulResult = true;
           this.logger.debug({ chatId, content: parsed.content }, 'Result received, turn complete');
+          // Reset restart failure count on successful completion
+          this.restartManager.recordSuccess(chatId);
           if (this.callbacks.onDone) {
             const threadRoot = this.conversationOrchestrator.getThreadRoot(chatId);
             await this.callbacks.onDone(chatId, threadRoot);
@@ -372,20 +400,42 @@ export class Pilot extends BaseAgent {
     }
 
     // Iterator ended without explicit close - this is unexpected
-    // Remove the stale session tracking, then attempt to restart
+    // Remove the stale session tracking, then check if we should restart
     this.sessionManager.deleteTracking(chatId);
-    this.logger.warn({ chatId, error: iteratorError?.message }, 'Agent loop ended unexpectedly, attempting restart');
+    this.logger.warn({ chatId, error: iteratorError?.message }, 'Agent loop ended unexpectedly');
 
-    // Notify user about the restart
+    // Check with RestartManager if we should attempt restart
+    if (!this.restartManager.shouldRestart(chatId)) {
+      // Circuit breaker is open - too many failures
+      const threadRoot = this.conversationOrchestrator.getThreadRoot(chatId);
+      const failureCount = this.restartManager.getFailureCount(chatId);
+      await this.callbacks.sendMessage(
+        chatId,
+        `🚫 会话重启失败次数过多 (${failureCount} 次)，已停止自动重连。请发送新消息重试，或使用 /reset 重置会话。`,
+        threadRoot
+      );
+      this.logger.error({ chatId, failureCount }, 'Circuit breaker open - not attempting restart');
+      return;
+    }
+
+    // Get delay and record the restart attempt
+    const delay = this.restartManager.getDelay(chatId);
+    this.restartManager.recordRestart(chatId);
+
+    // Notify user about the restart with delay info
     const threadRoot = this.conversationOrchestrator.getThreadRoot(chatId);
+    const delaySeconds = (delay / 1000).toFixed(1);
     const restartMessage = iteratorError
-      ? `⚠️ 会话遇到错误，正在重新连接... (${iteratorError.message})`
-      : '⚠️ 会话意外断开，正在重新连接...';
+      ? `⚠️ 会话遇到错误，${delaySeconds}秒后重新连接... (${iteratorError.message})`
+      : `⚠️ 会话意外断开，${delaySeconds}秒后重新连接...`;
     await this.callbacks.sendMessage(chatId, restartMessage, threadRoot);
+
+    // Wait with backoff before restarting
+    await new Promise(resolve => setTimeout(resolve, delay));
 
     // Restart the agent loop to preserve context for future messages
     this.startAgentLoop(chatId);
-    this.logger.info({ chatId }, 'Agent loop restarted');
+    this.logger.info({ chatId, delay }, 'Agent loop restarted with backoff');
   }
 
   /**
@@ -509,6 +559,8 @@ You can read these files using the Read tool with the local paths above.`;
     if (deleted) {
       // Also clear thread root
       this.conversationOrchestrator.deleteThreadRoot(chatId);
+      // Reset restart manager state to clear any circuit breaker
+      this.restartManager.reset(chatId);
       this.logger.info({ chatId }, 'State reset for chatId');
     } else {
       this.logger.debug({ chatId }, 'No state to reset for chatId');
