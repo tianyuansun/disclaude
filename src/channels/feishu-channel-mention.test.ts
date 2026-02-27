@@ -1,10 +1,15 @@
 /**
- * Tests for FeishuChannel command pass-through behavior when bot is mentioned.
+ * Tests for FeishuChannel command handling behavior when bot is mentioned.
  *
  * Issue #280: @bot 无法正确透传 /reset 指令给 agent
+ * Issue #307: @bot /reset 无法正确执行
  *
- * When bot is mentioned (@bot), commands should be passed through to the agent
- * instead of being handled locally by the channel.
+ * Known control commands (reset, status, help) are ALWAYS handled locally,
+ * even when bot is mentioned. This ensures /reset works correctly to cancel
+ * tasks and clear session state.
+ *
+ * Unknown commands (e.g., skill commands) are passed to the agent when bot
+ * is mentioned, allowing the agent to handle skill invocations.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -176,7 +181,7 @@ describe('FeishuChannel - Command Pass-through (Issue #280)', () => {
       expect(messageHandler).not.toHaveBeenCalled();
     });
 
-    it('should pass command to agent when bot IS mentioned', async () => {
+    it('should handle known control command locally even when bot IS mentioned (Issue #307)', async () => {
       await simulateMessageReceive({
         text: '/reset',
         mentions: [
@@ -188,19 +193,44 @@ describe('FeishuChannel - Command Pass-through (Issue #280)', () => {
         ],
       });
 
-      // Control handler should NOT be called (command passed to agent)
+      // Control handler SHOULD be called for known control commands (Issue #307 fix)
+      // This ensures /reset works correctly to cancel tasks and clear session state
+      expect(controlHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'reset',
+          chatId: 'test-chat-id',
+        })
+      );
+
+      // Message should NOT be passed to agent
+      expect(messageHandler).not.toHaveBeenCalled();
+    });
+
+    it('should pass unknown command to agent when bot IS mentioned', async () => {
+      await simulateMessageReceive({
+        text: '/my-skill-command',
+        mentions: [
+          {
+            key: '@_user',
+            id: { open_id: 'bot-open-id' },
+            name: 'Bot',
+          },
+        ],
+      });
+
+      // Control handler should NOT be called (unknown command passed to agent)
       expect(controlHandler).not.toHaveBeenCalled();
 
       // Message should be passed to agent
       expect(messageHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           chatId: 'test-chat-id',
-          content: '/reset',
+          content: '/my-skill-command',
         })
       );
     });
 
-    it('should pass command to agent when there are multiple mentions', async () => {
+    it('should handle known control command locally with multiple mentions', async () => {
       await simulateMessageReceive({
         text: '/reset',
         mentions: [
@@ -217,13 +247,13 @@ describe('FeishuChannel - Command Pass-through (Issue #280)', () => {
         ],
       });
 
-      // Command should be passed to agent
-      expect(controlHandler).not.toHaveBeenCalled();
-      expect(messageHandler).toHaveBeenCalledWith(
+      // Known control command should be handled locally (Issue #307)
+      expect(controlHandler).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: '/reset',
+          type: 'reset',
         })
       );
+      expect(messageHandler).not.toHaveBeenCalled();
     });
 
     it('should handle regular messages normally (without / prefix)', async () => {
