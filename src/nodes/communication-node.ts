@@ -14,20 +14,20 @@
  *                    └─────────────────────────────┘
  */
 
-import { WebSocketServer, WebSocket } from 'ws';
-import http from 'node:http';
 import { EventEmitter } from 'events';
 import { Config } from '../config/index.js';
 import { createLogger } from '../utils/logger.js';
 import type { IChannel, IncomingMessage, OutgoingMessage, ControlCommand, ControlResponse } from '../channels/index.js';
 import { FeishuChannel } from '../channels/feishu-channel.js';
 import { RestChannel } from '../channels/rest-channel.js';
-import type { PromptMessage, CommandMessage, FeedbackMessage, RegisterMessage } from '../types/websocket-messages.js';
+import type { PromptMessage, CommandMessage, FeedbackMessage } from '../types/websocket-messages.js';
 import type { FileReference } from '../types/file-reference.js';
 import { FileStorageService, type FileStorageConfig } from '../services/file-storage-service.js';
-import { createFileTransferAPIHandler } from '../services/file-transfer-api.js';
 import { ExecNodeManager } from './exec-node-manager.js';
 import { ChannelManager } from './channel-manager.js';
+import { HttpServerWrapper } from './http-server-wrapper.js';
+import { WebSocketServerWrapper } from './websocket-server-wrapper.js';
+import { CommandResponseFormatter } from './command-response-formatter.js';
 
 const logger = createLogger('CommunicationNode');
 
@@ -69,14 +69,15 @@ export interface CommunicationNodeConfig {
 export class CommunicationNode extends EventEmitter {
   private port: number;
   private host: string;
-
-  private httpServer?: http.Server;
-  private wss?: WebSocketServer;
   private running = false;
 
-  // Delegated managers
+  // Managers
   private execNodeManager: ExecNodeManager;
   private channelManager: ChannelManager;
+
+  // Server wrappers
+  private httpServer?: HttpServerWrapper;
+  private wsServer?: WebSocketServerWrapper;
 
   // File storage service
   private fileStorageService?: FileStorageService;
@@ -192,9 +193,9 @@ export class CommunicationNode extends EventEmitter {
   }
 
   /**
-   * Start WebSocket server for Execution Node connections.
+   * Start servers for Execution Node connections.
    */
-  private async startWebSocketServer(): Promise<void> {
+  private async startServers(): Promise<void> {
     // Initialize file storage service if configured
     if (this.fileStorageConfig) {
       this.fileStorageService = new FileStorageService(this.fileStorageConfig);
@@ -202,99 +203,31 @@ export class CommunicationNode extends EventEmitter {
       logger.info('File storage service initialized');
     }
 
-    // Create file API handler
-    const fileApiHandler = this.fileStorageService
-      ? createFileTransferAPIHandler({ storageService: this.fileStorageService })
-      : null;
-
-    // Create HTTP server for health check, file API, and WebSocket upgrade
-    this.httpServer = http.createServer(async (req, res) => {
-      const url = req.url || '/';
-
-      // Handle file API requests
-      if (fileApiHandler && url.startsWith('/api/files')) {
-        const handled = await fileApiHandler(req, res);
-        if (handled) {return;}
-      }
-
-      // Health check
-      if (url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: 'ok',
-          mode: 'communication',
-          channels: this.channelManager.getIds(),
-          fileStorage: this.fileStorageService?.getStats(),
-        }));
-        return;
-      }
-
-      res.writeHead(404);
-      res.end();
+    // Create and start HTTP server wrapper
+    this.httpServer = new HttpServerWrapper({
+      port: this.port,
+      host: this.host,
+      fileStorageService: this.fileStorageService,
+      getChannelIds: () => this.channelManager.getIds(),
     });
 
-    // Create WebSocket server
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    await this.httpServer.start();
 
-    this.wss.on('connection', (ws, req) => {
-      const clientIp = req.socket.remoteAddress;
-      let currentNodeId: string | undefined;
+    // Create and start WebSocket server wrapper
+    const httpServer = this.httpServer.getServer();
+    if (!httpServer) {
+      throw new Error('HTTP server not available');
+    }
 
-      logger.info({ clientIp }, 'Execution Node connecting...');
-
-      // Handle incoming messages
-      ws.on('message', (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-
-          // Handle registration message
-          if (message.type === 'register') {
-            const regMsg = message as RegisterMessage;
-            currentNodeId = this.execNodeManager.register(ws, regMsg, clientIp);
-            return;
-          }
-
-          // Handle feedback message
-          const feedbackMsg = message as FeedbackMessage;
-          void this.handleFeedback(feedbackMsg);
-        } catch (error) {
-          logger.error({ err: error }, 'Failed to parse message');
-        }
-      });
-
-      ws.on('close', () => {
-        if (currentNodeId) {
-          this.execNodeManager.unregister(currentNodeId);
-        }
-        this.emit('exec:disconnected', currentNodeId);
-      });
-
-      ws.on('error', (error) => {
-        logger.error({ err: error, nodeId: currentNodeId }, 'WebSocket error');
-      });
-
-      // Send a prompt to register (backward compatibility for nodes that don't auto-register)
-      // Set a timeout to auto-register if no registration received
-      const registrationTimeout = setTimeout(() => {
-        if (!currentNodeId && ws.readyState === WebSocket.OPEN) {
-          // Auto-register with generated ID for backward compatibility
-          const autoNodeId = `exec-${Date.now()}`;
-          currentNodeId = this.execNodeManager.register(
-            ws,
-            { type: 'register', nodeId: autoNodeId, name: 'Auto-registered Node' },
-            clientIp
-          );
-          logger.info({ nodeId: currentNodeId }, 'Auto-registered execution node (backward compatibility)');
-        }
-      }, 1000);
-
-      ws.on('close', () => clearTimeout(registrationTimeout));
+    this.wsServer = new WebSocketServerWrapper({
+      httpServer,
+      execNodeManager: this.execNodeManager,
+      onFeedback: (message) => this.handleFeedback(message),
+      onNodeDisconnected: (nodeId) => this.emit('exec:disconnected', nodeId),
     });
 
-    // Start server
-    this.httpServer.listen(this.port, this.host, () => {
-      logger.info({ port: this.port, host: this.host }, 'WebSocket server started');
-    });
+    this.wsServer.start();
+    logger.info({ port: this.port, host: this.host }, 'WebSocket server started');
   }
 
   /**
@@ -338,71 +271,53 @@ export class CommunicationNode extends EventEmitter {
   }
 
   /**
-   * Handle control command.
+   * Handle control command using CommandResponseFormatter.
    */
   private async handleControlCommand(command: ControlCommand): Promise<ControlResponse> {
     switch (command.type) {
       case 'reset':
         await this.sendCommand({ type: 'command', command: 'reset', chatId: command.chatId });
-        return { success: true, message: '✅ **对话已重置**\n\n新的会话已启动，之前的上下文已清除。' };
+        return CommandResponseFormatter.formatReset();
 
       case 'restart':
         await this.sendCommand({ type: 'command', command: 'restart', chatId: command.chatId });
-        return { success: true, message: '🔄 **正在重启服务...**' };
+        return CommandResponseFormatter.formatRestart();
 
       case 'status': {
-        const status = this.running ? 'Running' : 'Stopped';
-        const execNodesList = this.execNodeManager.getStats();
-        const execStatus = execNodesList.length > 0
-          ? execNodesList.map(n => `${n.name} (${n.status})`).join(', ')
-          : 'None';
-        const channelStatus = this.channelManager.getStatusInfo()
-          .map(ch => `${ch.name}: ${ch.status}`)
-          .join(', ');
         const currentNodeId = this.execNodeManager.getChatAssignment(command.chatId);
-        const currentNode = execNodesList.find(n => n.nodeId === currentNodeId);
-        return {
-          success: true,
-          message: `📊 **状态**\n\n状态: ${status}\n执行节点: ${execStatus}\n当前节点: ${currentNode?.name || '未分配'}\n通道: ${channelStatus}`,
-        };
+        return CommandResponseFormatter.formatStatus(
+          this.running,
+          this.execNodeManager.getStats(),
+          this.channelManager.getStatusInfo(),
+          currentNodeId
+        );
       }
 
       case 'list-nodes': {
-        const nodes = this.execNodeManager.getStats();
-        if (nodes.length === 0) {
-          return { success: true, message: '📋 **执行节点列表**\n\n暂无连接的执行节点' };
-        }
         const currentNodeId = this.execNodeManager.getChatAssignment(command.chatId);
-        const nodesList = nodes.map(n => {
-          const isCurrent = n.nodeId === currentNodeId ? ' ✓ (当前)' : '';
-          return `- ${n.name} [${n.status}]${isCurrent} (${n.activeChats} 活跃会话)`;
-        }).join('\n');
-        return { success: true, message: `📋 **执行节点列表**\n\n${nodesList}` };
+        return CommandResponseFormatter.formatListNodes(
+          this.execNodeManager.getStats(),
+          currentNodeId
+        );
       }
 
       case 'switch-node': {
         const targetNodeId = command.targetNodeId;
         if (!targetNodeId) {
-          // Show usage hint
-          const nodes = this.execNodeManager.getStats();
-          const nodesList = nodes.map(n => `- \`${n.nodeId}\` (${n.name})`).join('\n');
-          return {
-            success: false,
-            error: `请指定目标节点ID。\n\n可用节点:\n${nodesList}`,
-          };
+          return CommandResponseFormatter.formatSwitchNodeUsage(this.execNodeManager.getStats());
         }
 
         const success = this.execNodeManager.switchChatNode(command.chatId, targetNodeId);
         if (success) {
           const node = this.execNodeManager.getNode(targetNodeId);
-          return { success: true, message: `✅ **已切换执行节点**\n\n当前节点: ${node?.name || targetNodeId}` };
+          return CommandResponseFormatter.formatSwitchNodeSuccess(node?.name || targetNodeId);
         } else {
-          return { success: false, error: `切换失败，节点 \`${targetNodeId}\` 不可用` };
+          return CommandResponseFormatter.formatSwitchNodeError(targetNodeId);
         }
       }
 
       default:
-        return { success: false, error: `Unknown command: ${command.type}` };
+        return CommandResponseFormatter.formatUnknownCommand(command.type);
     }
   }
 
@@ -536,8 +451,8 @@ export class CommunicationNode extends EventEmitter {
 
     this.running = true;
 
-    // Start WebSocket server for Execution Node connections
-    await this.startWebSocketServer();
+    // Start servers (HTTP + WebSocket)
+    await this.startServers();
 
     // Start all registered channels
     await this.channelManager.startAll();
@@ -588,15 +503,15 @@ export class CommunicationNode extends EventEmitter {
     }
     this.execNodeManager.clear();
 
-    // Close WebSocket server
-    if (this.wss) {
-      this.wss.close();
-      this.wss = undefined;
+    // Stop WebSocket server
+    if (this.wsServer) {
+      this.wsServer.stop();
+      this.wsServer = undefined;
     }
 
-    // Close HTTP server
+    // Stop HTTP server
     if (this.httpServer) {
-      this.httpServer.close();
+      await this.httpServer.stop();
       this.httpServer = undefined;
     }
 

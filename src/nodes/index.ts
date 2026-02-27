@@ -8,6 +8,9 @@
  * - CommunicationNode: Main entry point for communication management
  * - ExecNodeManager: Manages execution node connections and routing
  * - ChannelManager: Manages communication channels
+ * - HttpServerWrapper: Handles HTTP server for health check and file API
+ * - WebSocketServerWrapper: Handles WebSocket server for execution nodes
+ * - CommandResponseFormatter: Formats control command responses
  *
  * Usage:
  * ```typescript
@@ -28,3 +31,6 @@
 export { CommunicationNode, type CommunicationNodeConfig } from './communication-node.js';
 export { ExecNodeManager, type ConnectedExecNode } from './exec-node-manager.js';
 export { ChannelManager } from './channel-manager.js';
+export { HttpServerWrapper, type HttpServerConfig } from './http-server-wrapper.js';
+export { WebSocketServerWrapper, type WebSocketServerConfig } from './websocket-server-wrapper.js';
+export { CommandResponseFormatter, type ChannelStatusInfo } from './command-response-formatter.js';
