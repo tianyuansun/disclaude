@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-28
+
+### Highlights
+
+**Code Quality & Architecture Improvements** - Major refactoring efforts to improve code maintainability, eliminate dead code, and enhance test coverage.
+
+### Added
+
+- **SDK Abstraction Layer** - Agent SDK abstraction for better modularity (#247, #279, #291, #292)
+- **Secure OAuth Authentication** - Third-party OAuth authentication system (#249)
+- **PrimaryNode & WorkerNode** - Unified architecture for execution nodes (#248)
+- **Card Interaction Support** - Feishu card message interaction handling (#275)
+- **Message Level Routing** - Message routing system for better organization (#266)
+- **Reflection Pattern Interface** - Iteration observability and control (#271)
+- **Schedule Recommend Skill** - Intelligent task recommendations (#265)
+- **PM2 Ecosystem Config** - Example configuration for primary node (#271)
+- **RestartManager** - Backoff and circuit breaker for agent restarts (#313)
+
+### Changed
+
+- **Channel Architecture Refactoring** - Decoupled platform-specific implementations (#163)
+- **File Transfer System Unification** - Eliminated redundant modules (#194, #235, #267)
+- **Platform Module Organization** - Moved Feishu module to platforms/feishu (#276)
+- **Bot Mention Command Pass-through** - Commands passed to agent when bot is mentioned (#280)
+
+### Fixed
+
+- **SDK Subprocess PATH** - Ensure PATH is always set for SDK subprocess (#313)
+- **Nested SDK Sessions** - Unset CLAUDECODE to allow nested sessions (#313)
+- **Test Import Paths** - Corrected import paths in test files (#289, #298)
+
+### Removed
+
+- **Dead Code** - Removed unused code and redundant exports (#260)
+- **Unused PlatformAdapterFactory** - Cleaned up unused abstractions (#270)
+
+### Developer Experience
+
+- **Test Coverage Improvements** - Large-scale unit test and integration test enhancements (#262)
+- **Missing Module Tests** - Added unit tests for previously untested modules (#290)
+
 ## [0.3.0] - 2026-02-27
 
 ### Highlights
