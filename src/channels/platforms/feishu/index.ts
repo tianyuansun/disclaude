@@ -1,15 +1,11 @@
 /**
  * Feishu Platform Module.
  *
- * Exports Feishu-specific implementations of platform adapters.
+ * @deprecated Import from 'src/platforms/feishu' instead.
+ * This module is kept for backward compatibility only.
+ *
+ * @see Issue #194 - Refactor: 统一文件传输系统架构
  */
 
-// Platform Adapter
-export { FeishuPlatformAdapter, type FeishuPlatformAdapterConfig } from './feishu-adapter.js';
-
-// Sub-adapters
-export { FeishuMessageSender, type FeishuMessageSenderConfig } from './feishu-message-sender.js';
-export { FeishuFileHandler, type FeishuFileHandlerConfig } from './feishu-file-handler.js';
-
-// Card Builders
-export { buildTextContent } from './card-builders/index.js';
+// Re-export from new location for backward compatibility
+export * from '../../../platforms/feishu/index.js';
