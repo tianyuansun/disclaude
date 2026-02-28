@@ -25,6 +25,8 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:coverage": "vitest --run --coverage",
+    "test:integration": "node --import tsx/esm tests/integration/run-all.ts",
+    "test:integration:quick": "node --import tsx/esm tests/integration/run-all.ts -- --quick",
     "pm2:start": "npm run build && pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop disclaude-feishu",
     "pm2:restart": "pm2 restart disclaude-feishu",
